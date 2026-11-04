@@ -19,7 +19,7 @@ A from-scratch Tetris engine plus a Deep Q-Network (DQN) trainer, built by "The 
 | `game.py` | Empty stub. |
 
 ## How to use
-Requires Python 3 with `torch` and `pygame`. Setup: `python -m venv .venv`, activate it (`.venv\Scriptsctivate` on Windows), then `pip install -r requirements.txt`.
+Requires Python 3 with `torch` and `pygame`. Setup: `python -m venv .venv`, activate it (`.venv\Scriptsactivate` on Windows), then `pip install -r requirements.txt`.
 
 - **Play or watch:** `python tetris_ui.py`. Edit the script to choose who plays. Set `IS_KEYBOARD_MODE = True` for human play. Near the bottom, `agent = ...` selects the agent (`RandomAgent()` is active; commented lines show how to load a checkpoint with `ModelAgent(torch.load("path.pt"))` or use `BruteAgent2`).
 - **Train:** `python training_loop.py`. The last lines of the file construct `TrainingLoop(save_dir=..., reward_func=...)` and call `loop.loop(...)` at import time, so edit the save dir and reward function there. The argument to `loop()` is ignored; training stops at `training_frames` (10M). Progress prints every 10k frames.
