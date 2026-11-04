@@ -209,6 +209,26 @@ class GameState:
         # have cleared any lines)
         return 0
 
+    def place_piece(self, cells):
+        """
+        Moves the current piece straight to {cells} (a list of (x, y)) and
+        locks it, exactly as if it had landed there through gravity. Used by
+        the placement-based agent. Returns the number of lines cleared.
+        """
+        if self.stop:
+            return 0
+        self._fill_piece_in_board(0)
+        self.current_piece = list(cells)
+        self._fill_piece_in_board(-1)
+        # same game-over rule as {_gravity}: the first cell that can't fall
+        # decides whether we locked too high
+        for x, y in self.current_piece:
+            if not self._is_valid_piece_location(x, y - 1):
+                if y >= self.height - 2:
+                    self.stop = True
+                break
+        return self._lock_and_reset()
+
     def _is_valid_piece_location(self, row, col):
         if row < 0 or row >= self.width:
             return False 

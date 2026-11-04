@@ -9,6 +9,7 @@ that updates the weights of the model based on the gradient.
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 import random
 import time
 from tetris_utils import *
@@ -271,8 +272,11 @@ class TrainingLoop:
 
                     pred = DQN(old_state_tensors)[list(range(self.batch_size)), actions]
                     # pred here is now just (batch_size,)
-                    loss = ((y - pred) ** 2).mean()
+                    # Huber loss + gradient clipping: with squared error one large
+                    # target (e.g. a game-over) can dominate and destabilize training
+                    loss = F.smooth_l1_loss(pred, y)
                     loss.backward() # produces gradients that are stored
+                    torch.nn.utils.clip_grad_norm_(DQN.parameters(), 10.0)
 
                     optimizer.step()
 
@@ -312,7 +316,8 @@ class TrainingLoop:
             #    print()
 
 if __name__ == "__main__":
-    loop = TrainingLoop(save_dir="run-5", reward_func=multipleRewards(reward_scale=0.01))
+    loop = TrainingLoop(save_dir="run-6", reward_func=BoardDeltaReward())
+    #loop = TrainingLoop(save_dir="run-5", reward_func=multipleRewards(reward_scale=0.01))
     #loop = TrainingLoop(save_dir="run-4-12", reward_func=HeightPenaltyReward(multiplier=0.1, game_over_penalty=10))
     #loop = TrainingLoop(reward_func=HeightPenaltyReward(multiplier=0.1, game_over_penalty=1000))
 

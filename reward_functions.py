@@ -27,6 +27,9 @@ PER_ISOLATED_HOLE_REWARD = -3
 NEW_PIECE_REWARD = -2
 
 
+from board_metrics import potential
+
+
 class RewardFunction:
     def __init__(self):
         pass
@@ -81,6 +84,31 @@ class HeightPenaltyReward(RewardFunction):
         end_game_penalty = -10 * state.stop
         # print(end_game_penalty)
         return reward + end_game_penalty
+
+class BoardDeltaReward(RewardFunction):
+    """
+    Rewards line clears plus the *change* in board quality (holes and
+    bumpiness, see board_metrics.py) caused by the step, minus a game-over
+    penalty. Unlike the absolute per-frame penalties in {multipleRewards}:
+      - rewards are order 1 (no -500 cliffs), and
+      - they are ~0 while a piece is falling and show up when it locks,
+      - there is no incentive to end the game early to stop paying a penalty.
+    """
+    def __init__(self, line_rewards=(0, 1, 3, 6, 10), shaping=1.0,
+                 game_over_penalty=5.0):
+        self.line_rewards = line_rewards
+        self.shaping = shaping
+        self.game_over_penalty = game_over_penalty
+
+    def update_and_get_reward(self, state, action):
+        before = potential(state.game_board, state.width, state.height)
+        lines_cleared = state.update(action)
+        after = potential(state.game_board, state.width, state.height)
+        reward = self.line_rewards[lines_cleared] + self.shaping * (after - before)
+        if state.stop:
+            reward -= self.game_over_penalty
+        return reward
+
 
 # http://cs231n.stanford.edu/reports/2016/pdfs/121_Report.pdf
 class multipleRewards(RewardFunction):
