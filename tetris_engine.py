@@ -106,6 +106,9 @@ class GameState:
         self._initialize_piece()
         self._fill_piece_in_board(-1)
         self.stop = False
+        # total lines cleared in this game so far (readable by anyone, even
+        # when a reward function consumes the return value of {update})
+        self.lines_cleared_total = 0
 
     def _initialize_piece(self):
         self.game_piece = GamePiece(board_width=self.width,
@@ -124,6 +127,7 @@ class GameState:
         return '\n'.join([''.join(x) for x in out])
 
     def _reset(self):
+        self.lines_cleared_total = 0
         self.current_piece = None
         self.game_board = [[0 for col in range(self.height)] for row in range(self.width)]
         self.game_piece = None
@@ -241,6 +245,7 @@ class GameState:
     def _lock_and_reset(self):
         self._fill_piece_in_board(1)
         num_cleared = self._clear_lines()
+        self.lines_cleared_total += num_cleared
         self._initialize_piece()
         self._fill_piece_in_board(-1)
         return num_cleared

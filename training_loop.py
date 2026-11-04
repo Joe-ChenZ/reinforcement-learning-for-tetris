@@ -38,6 +38,10 @@ class TrainingLoop:
         self.replay_start_size = 50_000
         self.gamma = 0.99
         self.target_network_update_frequency = 10_000
+        # greedy (epsilon = 0) evaluation, run every {eval_frequency} frames
+        self.eval_frequency = 100_000
+        self.eval_games = 20
+        self.max_episode_steps = 1000
 
         if save_dir is None:
             save_dir = "." # save to same folder by default
@@ -71,6 +75,33 @@ class TrainingLoop:
                 return e0 + t * (e1 - e0)
         return schedule[-1][1]
 
+    def evaluate(self, agent, num_games=None):
+        """
+        Plays {num_games} games with {agent} (no learning, no exploration
+        unless the agent has it) and returns
+        (mean episode length, mean lines cleared, max lines cleared).
+        """
+        if num_games is None:
+            num_games = self.eval_games
+        lengths = []
+        lines = []
+        with torch.no_grad():
+            for _ in range(num_games):
+                game = GameState()
+                steps = 0
+                while not game.stop and steps < self.max_episode_steps:
+                    game.update(agent.get_move(game))
+                    steps += 1
+                lengths.append(steps)
+                lines.append(game.lines_cleared_total)
+        return sum(lengths) / num_games, sum(lines) / num_games, max(lines)
+
+    def print_evaluation(self, label, agent):
+        length, mean_lines, max_lines = self.evaluate(agent)
+        print(f"[eval] {label}: {self.eval_games} games, "
+              f"mean length {length:.1f}, mean lines {mean_lines:.2f}, "
+              f"max lines {max_lines}")
+
     def loop(self):
         """Trains until {self.training_frames} frames have been played."""
         self.DQN = DQN = Net()
@@ -86,11 +117,16 @@ class TrainingLoop:
 
         total_avg_episode_reward = 0.0
         total_episode_length = 0
+        total_lines_cleared = 0
         num_episodes = 0
 
         total_loss = 0.0
         total_train_steps = 0
-        
+
+        # baseline to compare the greedy policy against
+        self.print_evaluation("random baseline", RandomAgent())
+        print()
+
         while total_frame_count < self.training_frames:
             #print(f"Episode {epoch+1}")
             episode_count += 1
@@ -112,7 +148,7 @@ class TrainingLoop:
 
             # do one full episode
             game_timestep_counter = 0
-            while not game.stop and game_timestep_counter < 1000:
+            while not game.stop and game_timestep_counter < self.max_episode_steps:
                 game_timestep_counter += 1
                 total_frame_count += 1
 
@@ -129,6 +165,7 @@ class TrainingLoop:
                     if num_episodes > 0:
                         print(f"average reward per episode: {total_avg_episode_reward/num_episodes:.2f}")
                         print(f"average episode length: {total_episode_length/num_episodes:.2f}")
+                        print(f"average lines cleared per episode: {total_lines_cleared/num_episodes:.3f}")
                     else:
                         print("average reward per episode: N/A (no episode finished)")
                         print("average episode length: N/A (no episode finished)")
@@ -138,6 +175,7 @@ class TrainingLoop:
                     # reset these so we only get averages between prints
                     total_avg_episode_reward = 0.0
                     total_episode_length = 0
+                    total_lines_cleared = 0
                     num_episodes = 0
                     total_loss = 0
                     total_train_steps = 0
@@ -151,7 +189,14 @@ class TrainingLoop:
                     print(f"saving the model to '{model_path}'")
                     torch.save(DQN, model_path)
                     print("saved!")
-                    
+
+                # periodically evaluate the greedy policy (epsilon = 0), which
+                # is a much cleaner progress signal than the training stats
+                if total_frame_count % self.eval_frequency == 0:
+                    self.print_evaluation("greedy policy",
+                                          ModelAgent(model=DQN, epsilon=0))
+                    print()
+
 
                 # update epsilon if we have to
                 new_epsilon = self.determine_epsilon_from_schedule(total_frame_count)
@@ -246,6 +291,7 @@ class TrainingLoop:
             avg_episode_reward = total_episode_reward / game_timestep_counter
 
             total_episode_length += game_timestep_counter
+            total_lines_cleared += game.lines_cleared_total
             total_avg_episode_reward += avg_episode_reward
             num_episodes += 1
             
