@@ -22,8 +22,10 @@ import torch.nn as nn
 
 from tetris_engine import Action
 from game_agent import Agent
-from board_metrics import (board_metrics, metrics_to_features,
-                           potential_from_metrics)
+from board_metrics import board_metrics, metrics_to_features
+
+# discount used both for training targets and for choosing a placement
+DEFAULT_GAMMA = 0.95
 
 ACTIONS = [Action.IDLE, Action.LEFT, Action.RIGHT, Action.ROTATE_CW, Action.ROTATE_CCW]
 
@@ -35,12 +37,23 @@ Candidate = namedtuple("Candidate",
 
 
 class PlacementReward:
-    """Reward for one placement: line clears + change in board quality."""
+    """
+    Reward for one placement: line clears + change in board quality (holes
+    and bumpiness), or -game_over_penalty if the placement ends the game.
+    A hole costs as much as clearing a single line gains, so the agent does
+    not trade holes for lines.
+    """
     def __init__(self, line_rewards=(0, 1, 3, 6, 10), shaping=1.0,
-                 game_over_penalty=5.0):
+                 game_over_penalty=5.0, hole_weight=1.0, bumpiness_weight=0.2):
         self.line_rewards = line_rewards
         self.shaping = shaping
         self.game_over_penalty = game_over_penalty
+        self.hole_weight = hole_weight
+        self.bumpiness_weight = bumpiness_weight
+
+    def potential(self, holes, bumpiness):
+        return -(self.hole_weight * sum(holes)
+                 + self.bumpiness_weight * sum(bumpiness))
 
 
 # -- enumerating placements ---------------------------------------------------
@@ -151,7 +164,7 @@ def get_candidates(state, reward_cfg=None):
     # the locked board without the falling piece
     locked = [[c if c > 0 else 0 for c in col] for col in state.game_board]
     _, holes0, bump0 = board_metrics(locked, width, height)
-    phi_before = potential_from_metrics(holes0, bump0)
+    phi_before = cfg.potential(holes0, bump0)
     piece_value = state.game_piece.shape_num + 1
 
     candidates = []
@@ -165,7 +178,7 @@ def get_candidates(state, reward_cfg=None):
         if done:
             reward = -cfg.game_over_penalty
         else:
-            phi_after = potential_from_metrics(holes, bump)
+            phi_after = cfg.potential(holes, bump)
             reward = (cfg.line_rewards[lines]
                       + cfg.shaping * (phi_after - phi_before))
         feats = metrics_to_features(heights, holes, bump, width, height)
@@ -196,17 +209,44 @@ class PlacementNet(nn.Module):
         return self.net(x).squeeze(-1)
 
 
+# Checkpoints are saved as {"format": 2, "state_dict": ...}. In format 2 the
+# network W(afterstate) is the value of the *position only*; the exact reward
+# of a placement is added when choosing (see {candidate_scores}). Older
+# checkpoints are bare state dicts whose network also had to learn the
+# reward; they are scored the old way.
+CHECKPOINT_FORMAT = 2
+
+
+def save_placement_model(model, path):
+    torch.save({"format": CHECKPOINT_FORMAT, "state_dict": model.state_dict()}, path)
+
+
 def load_placement_model(path):
     model = PlacementNet()
-    model.load_state_dict(torch.load(path))
+    data = torch.load(path)
+    if isinstance(data, dict) and data.get("format") == CHECKPOINT_FORMAT:
+        model.load_state_dict(data["state_dict"])
+        model.value_includes_reward = False
+    else:
+        model.load_state_dict(data)
+        model.value_includes_reward = True
     model.eval()
     return model
 
 
-def best_candidate_index(model, candidates):
+def candidate_scores(model, candidates, gamma=DEFAULT_GAMMA):
+    """Score of each placement: exact reward + gamma * value of the new board."""
     with torch.no_grad():
         values = model(torch.tensor([c.feats for c in candidates]))
-    return int(torch.argmax(values))
+    if getattr(model, "value_includes_reward", False):
+        return values
+    rewards = torch.tensor([c.reward for c in candidates])
+    alive = torch.tensor([0.0 if c.done else 1.0 for c in candidates])
+    return rewards + gamma * alive * values
+
+
+def best_candidate_index(model, candidates, gamma=DEFAULT_GAMMA):
+    return int(torch.argmax(candidate_scores(model, candidates, gamma)))
 
 
 class RandomPlacementAgent(Agent):

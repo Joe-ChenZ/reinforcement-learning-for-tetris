@@ -1,17 +1,23 @@
 """
 The Agency, Reinforcement Learning for Tetris
 
-DQN-style training for the placement-based agent (see placement.py).
+DQN-style training for the placement agent (see placement.py).
 
-One *decision* = choosing where to put one piece. For a placement a, with
-afterstate features f(a) and reward r(a):
+One *decision* = choosing where to put one piece. A placement a has exact,
+known reward r(a) and leads to an afterstate board with features f(a). The
+network W(f) is the value of a *position* (what is still to come), and a
+placement is scored as
 
-    V(f(a))  is trained towards   r(a)                                   if the placement ends the game
-                                  r(a) + gamma * max_b V_target(f'(b))   otherwise
+    score(a) = r(a) + gamma * W(f(a))          (0 future value if a ends the game)
 
-where b ranges over the legal placements of the *next* piece. This is the
-same Bellman target as the per-tick DQN, but one decision spans a whole piece,
-so credit assignment is immediate.
+Training moves W(f(a)) towards the best score available for the next piece:
+
+    W(f(a))  <-  max over legal placements b of the next piece of  score(b)
+
+(and towards 0 if a ended the game). The network never has to learn the
+immediate reward, which we can compute exactly, so a clean line clear is not
+lost in approximation error. One decision spans a whole piece, so credit
+assignment is immediate.
 
 Run:  uv run python placement_training.py --decisions 150000 --save-dir run-placement
 """
@@ -28,23 +34,31 @@ import torch.optim as optim
 
 from tetris_engine import GameState
 from placement import (PlacementNet, PlacementReward, get_candidates,
-                       best_candidate_index)
+                       best_candidate_index, save_placement_model,
+                       DEFAULT_GAMMA)
 
-# feats: afterstate features of the placement taken; next_feats: features of
-# every legal placement of the next piece (None if the game ended)
-Transition = namedtuple("Transition", ("feats", "reward", "next_feats"))
+# feats: afterstate features of the placement taken. next_*: features,
+# rewards and game-over flags of every legal placement of the next piece
+# (None if the game ended)
+Transition = namedtuple("Transition",
+                        ("feats", "next_feats", "next_rewards", "next_done"))
 
 
 class PlacementReplay:
     def __init__(self, capacity):
         self.memory = deque(maxlen=capacity)
 
-    def push(self, feats, reward, next_feats):
-        # half precision keeps the memory footprint small
+    def push(self, feats, next_candidates):
+        """{next_candidates} is the next piece's candidate list, or None."""
+        feats = torch.tensor(feats, dtype=torch.float16)  # half precision: small
+        if next_candidates is None:
+            self.memory.append(Transition(feats, None, None, None))
+            return
         self.memory.append(Transition(
-            torch.tensor(feats, dtype=torch.float16), reward,
-            None if next_feats is None
-            else torch.tensor(next_feats, dtype=torch.float16)))
+            feats,
+            torch.tensor([c.feats for c in next_candidates], dtype=torch.float16),
+            torch.tensor([c.reward for c in next_candidates], dtype=torch.float32),
+            torch.tensor([1.0 if c.done else 0.0 for c in next_candidates])))
 
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
@@ -60,7 +74,7 @@ class PlacementTrainer:
         self.reward_cfg = reward_cfg or PlacementReward()
 
         self.total_decisions = 150_000
-        self.gamma = 0.95
+        self.gamma = DEFAULT_GAMMA
         self.batch_size = 64
         self.learning_rate = 1e-3
         self.replay_capacity = 50_000
@@ -101,23 +115,26 @@ class PlacementTrainer:
 
     def evaluate_greedy(self, net):
         net.eval()
-        self.evaluate(lambda c: best_candidate_index(net, c), "greedy policy")
+        self.evaluate(lambda c: best_candidate_index(net, c, self.gamma),
+                      "greedy policy")
         net.train()
 
     # -- training -----------------------------------------------------------
     def train_step(self, net, target_net, optimizer, replay):
         batch = replay.sample(self.batch_size)
         feats = torch.stack([t.feats for t in batch]).float()
-        targets = torch.tensor([t.reward for t in batch], dtype=torch.float32)
+        targets = torch.zeros(self.batch_size)  # 0 where the game ended
 
         live = [i for i, t in enumerate(batch) if t.next_feats is not None]
         if live:
-            nexts = [batch[i].next_feats for i in live]
-            sizes = [n.shape[0] for n in nexts]
+            sizes = [batch[i].next_feats.shape[0] for i in live]
             with torch.no_grad():
-                values = target_net(torch.cat(nexts).float())
-                best = torch.stack([v.max() for v in torch.split(values, sizes)])
-            targets[torch.tensor(live)] += self.gamma * best
+                values = target_net(torch.cat([batch[i].next_feats for i in live]).float())
+                rewards = torch.cat([batch[i].next_rewards for i in live])
+                done = torch.cat([batch[i].next_done for i in live])
+                scores = rewards + self.gamma * (1.0 - done) * values
+                best = torch.stack([v.max() for v in torch.split(scores, sizes)])
+            targets[torch.tensor(live)] = best
 
         loss = F.smooth_l1_loss(net(feats), targets)
         optimizer.zero_grad()
@@ -137,7 +154,7 @@ class PlacementTrainer:
         print()
 
         game = GameState()
-        pending = None  # (feats, reward) of the previous decision
+        pending = None  # afterstate features of the previous decision
         placements_this_game = 0
         episodes = lines_total = pieces_total = 0
         loss_total, loss_steps = 0.0, 0
@@ -146,7 +163,7 @@ class PlacementTrainer:
         for decision in range(1, self.total_decisions + 1):
             candidates = get_candidates(game, self.reward_cfg)
             if pending is not None:
-                replay.push(pending[0], pending[1], [c.feats for c in candidates])
+                replay.push(pending, candidates)
                 pending = None
             if placements_this_game >= self.max_placements_per_episode:
                 # truncated, not game over: the transition above was stored
@@ -161,20 +178,19 @@ class PlacementTrainer:
             if random.random() < eps:
                 choice = random.choice(candidates)
             else:
-                with torch.no_grad():
-                    choice = candidates[best_candidate_index(net, candidates)]
+                choice = candidates[best_candidate_index(net, candidates, self.gamma)]
 
             game.place_piece(choice.cells)
             placements_this_game += 1
 
             if choice.done or game.stop:
-                replay.push(choice.feats, choice.reward, None)
+                replay.push(choice.feats, None)
                 episodes += 1
                 lines_total += game.lines_cleared_total
                 pieces_total += placements_this_game
                 game, placements_this_game = GameState(), 0
             else:
-                pending = (choice.feats, choice.reward)
+                pending = choice.feats
 
             if len(replay) >= self.replay_start_size:
                 loss_total += self.train_step(net, target_net, optimizer, replay)
@@ -200,10 +216,10 @@ class PlacementTrainer:
                 print()
             if decision % self.checkpoint_frequency == 0:
                 path = os.path.join(self.save_dir, "placement-%06d.pt" % decision)
-                torch.save(net.state_dict(), path)
+                save_placement_model(net, path)
                 print(f"saved {path}\n")
 
-        torch.save(net.state_dict(), os.path.join(self.save_dir, "placement-final.pt"))
+        save_placement_model(net, os.path.join(self.save_dir, "placement-final.pt"))
         return net
 
 
