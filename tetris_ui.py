@@ -14,6 +14,7 @@ import sys
 from tetris_engine import *
 from reward_functions import *
 from game_agent import *
+from placement import PlacementAgent, load_placement_model
 
 pygame.init()
 
@@ -74,6 +75,7 @@ lines_cleared = 0
 
 agent = RandomAgent()
 #agent = ModelAgent(torch.load("./model-epoch-140.pt"))
+#agent = PlacementAgent(load_placement_model("run-placement/placement-final.pt"))
 #agent = BruteAgent2(depth=2, reward_func=HeightPenaltyReward(multiplier=0.1))
 
 frame_count = 0
