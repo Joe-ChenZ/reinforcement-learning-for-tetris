@@ -19,11 +19,11 @@ A from-scratch Tetris engine plus a Deep Q-Network (DQN) trainer, built by "The 
 | `game.py` | Empty stub. |
 
 ## How to use
-Requires Python 3 with `torch` and `pygame`. Setup: `python -m venv .venv`, activate it (`.venv\Scripts\activate` on Windows), then `pip install -r requirements.txt`.
+Requires Python 3.10+ with `torch`, `pygame` and `numpy`, managed with [uv](https://docs.astral.sh/uv/) (`pyproject.toml` + `uv.lock`). Setup: `uv sync`. Run scripts with `uv run <script>`, e.g. `uv run python tetris_ui.py`.
 
-- **Play or watch:** `python tetris_ui.py`. Edit the script to choose who plays. Set `IS_KEYBOARD_MODE = True` for human play. Near the bottom, `agent = ...` selects the agent (`RandomAgent()` is active; commented lines show how to load a checkpoint with `ModelAgent(torch.load("path.pt"))` or use `BruteAgent2`).
-- **Train:** `python training_loop.py`. The last lines of the file construct `TrainingLoop(save_dir=..., reward_func=...)` and call `loop.loop()` under `__main__`, so edit the save dir and reward function there. Training stops at `training_frames` (10M). `epsilon_schedule` (list of `(frame, epsilon)` points, linearly interpolated) defaults to the DeepMind 1.0 -> 0.1 over 1M frames. Progress prints every 10k frames.
-- **Benchmark agents:** `python tetris_reward.py`.
+- **Play or watch:** `uv run python tetris_ui.py`. Edit the script to choose who plays. Set `IS_KEYBOARD_MODE = True` for human play. Near the bottom, `agent = ...` selects the agent (`RandomAgent()` is active; commented lines show how to load a checkpoint with `ModelAgent(torch.load("path.pt"))` or use `BruteAgent2`).
+- **Train:** `uv run python training_loop.py`. The last lines of the file construct `TrainingLoop(save_dir=..., reward_func=...)` and call `loop.loop()` under `__main__`, so edit the save dir and reward function there. Training stops at `training_frames` (10M). `epsilon_schedule` (list of `(frame, epsilon)` points, linearly interpolated) defaults to the DeepMind 1.0 -> 0.1 over 1M frames. Progress prints every 10k frames.
+- **Benchmark agents:** `uv run python tetris_reward.py`.
 
 ## Gotchas
 - Board is `game_board[x][y]` with origin at bottom-left. Cell values: 0 empty, +k locked piece type k, -k the current falling piece.
