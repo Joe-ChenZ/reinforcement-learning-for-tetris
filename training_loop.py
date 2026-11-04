@@ -116,6 +116,7 @@ class TrainingLoop:
         last_time = time.time()
 
         total_avg_episode_reward = 0.0
+        total_episode_reward_sum = 0.0
         total_episode_length = 0
         total_lines_cleared = 0
         num_episodes = 0
@@ -163,7 +164,8 @@ class TrainingLoop:
                     print(f"finished {total_frame_count} frames ({time_taken:.2f} seconds since last print)")
                     print(f"current epsilon: {model_agent.epsilon:.4f}")
                     if num_episodes > 0:
-                        print(f"average reward per episode: {total_avg_episode_reward/num_episodes:.2f}")
+                        print(f"average total reward per episode: {total_episode_reward_sum/num_episodes:.2f}")
+                        print(f"average reward per frame: {total_avg_episode_reward/num_episodes:.3f}")
                         print(f"average episode length: {total_episode_length/num_episodes:.2f}")
                         print(f"average lines cleared per episode: {total_lines_cleared/num_episodes:.3f}")
                     else:
@@ -174,6 +176,7 @@ class TrainingLoop:
                     
                     # reset these so we only get averages between prints
                     total_avg_episode_reward = 0.0
+                    total_episode_reward_sum = 0.0
                     total_episode_length = 0
                     total_lines_cleared = 0
                     num_episodes = 0
@@ -292,6 +295,7 @@ class TrainingLoop:
 
             total_episode_length += game_timestep_counter
             total_lines_cleared += game.lines_cleared_total
+            total_episode_reward_sum += total_episode_reward
             total_avg_episode_reward += avg_episode_reward
             num_episodes += 1
             
@@ -308,7 +312,8 @@ class TrainingLoop:
             #    print()
 
 if __name__ == "__main__":
-    loop = TrainingLoop(save_dir="run-4-12", reward_func=HeightPenaltyReward(multiplier=0.1, game_over_penalty=10))
+    loop = TrainingLoop(save_dir="run-5", reward_func=multipleRewards(reward_scale=0.01))
+    #loop = TrainingLoop(save_dir="run-4-12", reward_func=HeightPenaltyReward(multiplier=0.1, game_over_penalty=10))
     #loop = TrainingLoop(reward_func=HeightPenaltyReward(multiplier=0.1, game_over_penalty=1000))
 
     loop.loop()

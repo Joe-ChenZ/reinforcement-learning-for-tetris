@@ -84,14 +84,25 @@ class HeightPenaltyReward(RewardFunction):
 
 # http://cs231n.stanford.edu/reports/2016/pdfs/121_Report.pdf
 class multipleRewards(RewardFunction):
-    def __init__(self, height_mult=-0.67, hole_mult=-0.36, bumpiness_mult=-0.18, lineclear_mult=0.8):
+    def __init__(self, height_mult=-0.67, hole_mult=-0.36, bumpiness_mult=-0.18, lineclear_mult=0.8,
+                 game_over_penalty=50000, reward_scale=1.0):
         self.height_mult = height_mult
         self.hole_mult = hole_mult
         self.lineclear_mult = lineclear_mult
         self.bumpiness_mult = bumpiness_mult
+        self.game_over_penalty = game_over_penalty
+        # multiplies the final reward; the raw values are huge (tens per frame,
+        # -50000 on death) which is hard for a neural net to regress, so scale
+        # them down (e.g. 0.01) while keeping the ratios between the terms
+        self.reward_scale = reward_scale
     def update_and_get_reward(self, state, action):
-        parent_reward = super().update_and_get_reward(state, action)
-        lines_cleared_reward = state.update(action) ** 2 * self.lineclear_mult
+        # NOTE: {state.update} must be called exactly once per call. This used
+        # to call it twice (once via the parent class, once here), which
+        # advanced the game two ticks and applied the action twice, so the
+        # replay-memory transitions didn't match the action that was stored.
+        lines_cleared = state.update(action)
+        parent_reward = lines_cleared - self.game_over_penalty * state.stop
+        lines_cleared_reward = lines_cleared ** 2 * self.lineclear_mult
         height_penalty = 0
         hole_penalty = 0
         global_max_height = 0
@@ -159,7 +170,7 @@ class multipleRewards(RewardFunction):
         #     for i in range(state.width):
         #         hole_penalty += state.game_board[i][j] == 0
         # hole_penalty *= self.hole_mult
-        return parent_reward + height_penalty + hole_penalty + bumpiness_penalty + lines_cleared_reward
+        return self.reward_scale * (parent_reward + height_penalty + hole_penalty + bumpiness_penalty + lines_cleared_reward)
 
 
 ### old code from state refactor: consider using later?
