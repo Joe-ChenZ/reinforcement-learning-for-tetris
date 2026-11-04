@@ -33,7 +33,7 @@ class RewardFunction:
 
     def update_and_get_reward(self, state, action):
         """Calls {state.update} with {action} and returns the reward."""
-        line_clear_reward = state.update()
+        line_clear_reward = state.update(action)
         end_game_penalty = -50000 * state.stop
         # print(end_game_penalty)
         return line_clear_reward + end_game_penalty

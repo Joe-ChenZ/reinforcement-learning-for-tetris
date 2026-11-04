@@ -6,7 +6,6 @@ The Agency, Reinforcement Learning for Tetris
 Primary goal of this file is to have a training loop 
 that updates the weights of the model based on the gradient.
 """
-from audioop import mul
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -48,8 +47,10 @@ class TrainingLoop:
             os.makedirs(self.save_dir)
 
         if epsilon_schedule is None:
-            # default to complete linear
-            epsilon_schedule = [(0,1.0), (self.training_frames,0.0)]
+            # default to the DeepMind paper: 1.0 -> 0.1 over the first 1M
+            # frames, then constant
+            epsilon_schedule = [(0, 1.0), (1_000_000, 0.1),
+                                (self.training_frames, 0.1)]
         self.epsilon_schedule = epsilon_schedule
 
         if reward_func is None:
@@ -57,16 +58,28 @@ class TrainingLoop:
         self.reward_func = reward_func
 
     def determine_epsilon_from_schedule(self, current_frame_count):
-        # hard coded to use deepmind paper value(s)
-        # TODO: make this use {self.epsilon_schedule}
-        return max(1 - 0.9 * (current_frame_count / 1_000_000), 0.1)
+        # linearly interpolate between the (frame, epsilon) points in
+        # {self.epsilon_schedule}; clamp to the first/last value outside it
+        schedule = self.epsilon_schedule
+        if current_frame_count <= schedule[0][0]:
+            return schedule[0][1]
+        for (f0, e0), (f1, e1) in zip(schedule, schedule[1:]):
+            if current_frame_count <= f1:
+                if f1 == f0:
+                    return e1
+                t = (current_frame_count - f0) / (f1 - f0)
+                return e0 + t * (e1 - e0)
+        return schedule[-1][1]
 
-    def loop(self, epochs):
+    def loop(self):
+        """Trains until {self.training_frames} frames have been played."""
         self.DQN = DQN = Net()
         model_agent = ModelAgent(model=DQN, epsilon=1)
         #optimizer = optim.Adam(DQN.parameters(), lr=0.0001)
         optimizer = optim.RMSprop(DQN.parameters(), lr=0.00025, momentum=0.95, alpha=0.95, eps=0.01)
         self.old_model = Net()
+        # start the target network identical to the online network
+        self.old_model.load_state_dict(DQN.state_dict())
         episode_count = 0
         total_frame_count = 0
         last_time = time.time()
@@ -113,8 +126,12 @@ class TrainingLoop:
                     
                     print(f"finished {total_frame_count} frames ({time_taken:.2f} seconds since last print)")
                     print(f"current epsilon: {model_agent.epsilon:.4f}")
-                    print(f"average reward per episode: {total_avg_episode_reward/num_episodes:.2f}")
-                    print(f"average episode length: {total_episode_length/num_episodes:.2f}")
+                    if num_episodes > 0:
+                        print(f"average reward per episode: {total_avg_episode_reward/num_episodes:.2f}")
+                        print(f"average episode length: {total_episode_length/num_episodes:.2f}")
+                    else:
+                        print("average reward per episode: N/A (no episode finished)")
+                        print("average episode length: N/A (no episode finished)")
                     print(f"average loss: {average_loss}")
                     print()
                     
@@ -244,8 +261,9 @@ class TrainingLoop:
             #    torch.save(self.old_model, model_path)
             #    print()
 
-loop = TrainingLoop(save_dir="run-4-12", reward_func=HeightPenaltyReward(multiplier=0.1, game_over_penalty=10))
-#loop = TrainingLoop(reward_func=HeightPenaltyReward(multiplier=0.1, game_over_penalty=1000))
+if __name__ == "__main__":
+    loop = TrainingLoop(save_dir="run-4-12", reward_func=HeightPenaltyReward(multiplier=0.1, game_over_penalty=10))
+    #loop = TrainingLoop(reward_func=HeightPenaltyReward(multiplier=0.1, game_over_penalty=1000))
 
-loop.loop(1000)
+    loop.loop()
 

@@ -22,13 +22,11 @@ A from-scratch Tetris engine plus a Deep Q-Network (DQN) trainer, built by "The 
 Requires Python 3 with `torch` and `pygame`. Setup: `python -m venv .venv`, activate it (`.venv\Scripts\activate` on Windows), then `pip install -r requirements.txt`.
 
 - **Play or watch:** `python tetris_ui.py`. Edit the script to choose who plays. Set `IS_KEYBOARD_MODE = True` for human play. Near the bottom, `agent = ...` selects the agent (`RandomAgent()` is active; commented lines show how to load a checkpoint with `ModelAgent(torch.load("path.pt"))` or use `BruteAgent2`).
-- **Train:** `python training_loop.py`. The last lines of the file construct `TrainingLoop(save_dir=..., reward_func=...)` and call `loop.loop(...)` at import time, so edit the save dir and reward function there. The argument to `loop()` is ignored; training stops at `training_frames` (10M). Progress prints every 10k frames.
+- **Train:** `python training_loop.py`. The last lines of the file construct `TrainingLoop(save_dir=..., reward_func=...)` and call `loop.loop()` under `__main__`, so edit the save dir and reward function there. Training stops at `training_frames` (10M). `epsilon_schedule` (list of `(frame, epsilon)` points, linearly interpolated) defaults to the DeepMind 1.0 -> 0.1 over 1M frames. Progress prints every 10k frames.
 - **Benchmark agents:** `python tetris_reward.py`.
 
 ## Gotchas
 - Board is `game_board[x][y]` with origin at bottom-left. Cell values: 0 empty, +k locked piece type k, -k the current falling piece.
-- `training_loop.py` has `from audioop import mul`, an unused import. `audioop` was removed in Python 3.13, so delete that line on new Pythons.
-- `training_loop.py` ignores `epsilon_schedule`. `determine_epsilon_from_schedule` is hardcoded to the DeepMind decay.
 - `BruteAgent` and `tetris_reward.py` call `state.get_reward()`, which `GameState` doesn't define (rewards moved to `reward_functions.py`). Use `BruteAgent2` with a reward function instead.
 - `tetris_ui.py` instantiates `ModelAgent()` (untrained placeholder) and then overwrites it with `RandomAgent()`. The module-level script code runs on import.
 - `utils`' docstring on output order is stale. The actual action order is the `Action` enum values 0-4.
