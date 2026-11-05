@@ -75,22 +75,30 @@ GAME_PIECE_OFFSETS = [
 
 class GamePiece:
     # seven different shapes in tetris
-    def __init__(self, board_width=10, board_height=20):
-        self.shape_num = random.randrange(0, 7)
+    def __init__(self, board_width=10, board_height=20, rng=random):
+        # {rng} is anything with randrange/randint: the global {random}
+        # module (default) or a seeded {random.Random}
+        self.rng = rng
+        self.shape_num = rng.randrange(0, 7)
         self.width = board_width
         self.height = board_height
         self.shape = []
         self._initialize()
-        
+
     def _initialize(self):
         shape_offsets = GAME_PIECE_OFFSETS[self.shape_num]
-        w_offset = random.randint(-1, 0)
+        w_offset = self.rng.randint(-1, 0)
         for dx, dy in shape_offsets:
             self.shape.append((self.width//2 + w_offset + dx, self.height - 1 + dy))
 
 
 class GameState:
-    def __init__(self, width=10, height=20):
+    def __init__(self, width=10, height=20, seed=None):
+        # {seed}: if given, the game gets its own random generator, so the
+        # sequence of pieces is identical for every game with the same seed
+        # no matter what else uses {random} (e.g. an exploring agent).
+        # If None, pieces come from the global {random} module as before.
+        self.rng = random if seed is None else random.Random(seed)
         # Joe: assume bottom left to be (0, 0), x coordinate goes to the right,
         #      y coordinate goes up
         self.width = width
@@ -112,7 +120,8 @@ class GameState:
 
     def _initialize_piece(self):
         self.game_piece = GamePiece(board_width=self.width,
-                                    board_height=self.height)
+                                    board_height=self.height,
+                                    rng=self.rng)
         self.current_piece = self.game_piece.shape
 
     def _fill_piece_in_board(self, multiplier):

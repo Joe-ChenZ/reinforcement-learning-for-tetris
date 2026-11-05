@@ -96,9 +96,10 @@ class PlacementTrainer:
         self.max_placements_per_episode = 500
         self.print_frequency = 5_000
         self.checkpoint_frequency = 25_000
-        self.eval_frequency = 10_000
+        self.eval_frequency = 25_000  # kept light (~3 min); use evaluate.py offline for a big eval
         self.eval_games = 10
-        self.eval_max_placements = 300
+        self.eval_seed = 1000  # eval game i uses seed eval_seed + i: same pieces every eval
+        self.eval_max_placements = 500
 
     def epsilon(self, decision: int) -> float:
         t = min(decision / self.epsilon_decay_decisions, 1.0)
@@ -108,8 +109,8 @@ class PlacementTrainer:
     def evaluate(self, pick: Callable[[list[Candidate]], int], label: str) -> None:
         """Plays games with {pick(candidates) -> index}; prints a summary."""
         placements, lines, capped = [], [], 0
-        for _ in range(self.eval_games):
-            game = GameState()
+        for i in range(self.eval_games):
+            game = GameState(seed=self.eval_seed + i)
             n = 0
             while not game.stop and n < self.eval_max_placements:
                 candidates = get_candidates(game, self.reward_cfg)
@@ -253,7 +254,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--decisions", type=int, default=150_000)
     parser.add_argument("--save-dir", default="run-placement")
+    parser.add_argument("--eval-games", type=int, default=10)
+    parser.add_argument("--eval-cap", type=int, default=500,
+                        help="max pieces per evaluation game")
+    parser.add_argument("--eval-every", type=int, default=25_000,
+                        help="decisions between evaluations")
     args = parser.parse_args()
     trainer = PlacementTrainer(save_dir=args.save_dir)
     trainer.total_decisions = args.decisions
+    trainer.eval_games = args.eval_games
+    trainer.eval_max_placements = args.eval_cap
+    trainer.eval_frequency = args.eval_every
     trainer.train()

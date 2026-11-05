@@ -37,6 +37,14 @@ agent = PlacementAgent(load_placement_model("run-placement/placement-final.pt"))
 
 Set `IS_KEYBOARD_MODE = True` to play yourself (arrow keys or WASD, `R` to restart).
 
+**Evaluate checkpoints**
+
+```
+uv run python evaluate.py run-placement/placement-final.pt --baseline
+```
+
+Plays 30 seeded games (1,000-piece cap) per checkpoint and reports deaths, pieces, lines and end-of-game holes. It is slow, so run it in a second terminal while training continues. The `[eval]` lines printed during training are a lighter, noisier version of the same thing.
+
 **Train the per-tick DQN**
 
 ```
@@ -69,7 +77,7 @@ The network sees the raw 400-cell board (locked cells plus the falling piece) an
 - The per-tick DQN barely clears lines after more than a million frames.
 
 Notes:
-- Evaluation games in the training log stop at 300 pieces, so small dips there are mostly one or two games dying by chance (10 games per evaluation). Use a larger, longer evaluation to compare checkpoints.
+- Evaluation games in the training log stop at 300 pieces, so small dips there are mostly one or two games dying by chance (10 games per evaluation). Use `evaluate.py` (more games, longer cap) to compare checkpoints.
 - Possible improvements: a higher episode cap and lower final epsilon so training sees late-game boards, hole-depth and row-transition features, an ongoing penalty for existing holes, and a decaying learning rate.
 - Engine quirk: game over is decided by the first piece cell that cannot fall, so a piece can lock with a cell in the top two rows without ending the game; the next spawn then overwrites that cell.
 
@@ -81,6 +89,7 @@ Notes:
 | `tetris_ui.py` | Pygame viewer / keyboard play |
 | `placement.py` | Placement enumeration, features, `PlacementNet`, `PlacementAgent` |
 | `placement_training.py` | Training for the placement agent |
+| `evaluate.py` | Offline, seeded evaluation of placement checkpoints |
 | `board_metrics.py` | Heights, holes and bumpiness shared by rewards and features |
 | `training_loop.py` | Per-tick DQN training |
 | `model.py` | Per-tick `Net` (400 → 100 → 25 → 5) |
