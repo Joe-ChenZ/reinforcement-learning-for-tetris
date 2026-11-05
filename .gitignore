@@ -130,3 +130,5 @@ dmypy.json
 
 # models
 *.pt
+# ...except the curated models kept for reference
+!models/**/*.pt
